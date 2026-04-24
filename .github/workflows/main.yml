@@ -1,0 +1,33 @@
+name: Wiz Container Scan
+on: [push, pull_request]
+
+permissions:
+  security-events: write # REQUIRED: Allows Wiz to post results to the Security tab
+  contents: read
+
+jobs:
+  wiz-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: docker build -t my-app:${{ github.sha }} .
+
+      - name: Download Wiz CLI
+        run: curl -o wizcli https://downloads.wiz.io/v1/wizcli/latest/wizcli-linux-amd64 && chmod +x wizcli
+
+      - name: Run Wiz Scan & Transform
+        env:
+          WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
+          WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
+        run: |
+          ./wizcli scan container-image my-app:${{ github.sha }} --output json > results.json
+          # jq creates your custom format: [Wiz CLI Scan] : CVE ID : Fix Version
+          jq -f transform_to_sarif.jq results.json > wiz.sarif
+
+      - name: Upload to GitHub Security Tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: wiz.sarif
